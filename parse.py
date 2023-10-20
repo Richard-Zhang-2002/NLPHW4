@@ -71,7 +71,7 @@ class EarleyChart:
         self.cols: List[Agenda]
         self._run_earley()    # run Earley's algorithm to construct self.cols
 
-    def accepted(self) -> bool:
+    def acceptedBP(self) -> bool:
         """Was the sentence accepted?
         That is, does the finished chart contain an item corresponding to a parse of the sentence?
         This method answers the recognition question, but not the parsing question."""
@@ -79,9 +79,63 @@ class EarleyChart:
             if (item.rule.lhs == self.grammar.start_symbol   # a ROOT item in this column
                 and item.next_symbol() is None               # that is complete 
                 and item.start_position == 0):               # and started back at position 0
+
+                    #! goal here is to do backward and get the correct parse:
+                    stack = [] #use a stack to throw in the elements
+                    stack.append((item,0))
+                    result = "" #the result string that is printed out
+
+                    depthCount = 0
+
+                    tempAdjust = 0 #temporary adjustment used to handle the case of terminals(basically it doesn't have parenthesis after it)
+                    while stack:
+                        toTerminal = False
+                        i,curDepth = stack.pop()
+
+                       # print(i)
+                       # print("i depth:",curDepth)
+                       # print("curdapth:",depthCount)
+
+
+                        if isinstance(i, str):
+                            numParen = depthCount - curDepth + 1 + tempAdjust if depthCount - curDepth + 1 > 0 and depthCount != 0 else 0
+                            result += ")"*numParen
+                            result += i+" "
+                            depthCount = curDepth
+                            tempAdjust = -1
+                            continue
+                        #if(i.dot_position == 0):
+                            #depthCount += 1
+                        if(i.dot_position == len(i.rule.rhs)):
+                            numParen = depthCount - curDepth + 1 + tempAdjust if depthCount - curDepth + 1 > 0 and depthCount != 0 else 0
+                            result += ")"*numParen
+                            result += ("("+i.rule.lhs+" ")
+                            if i.dot_position == 1 and not self.grammar.is_nonterminal(i.rule.rhs[0]):
+                                result +=  (i.rule.rhs[0])
+                                toTerminal = True
+                            depthCount = curDepth
+                        
+                        #print(i.position)
+                        #print(i)
+                        #print(self.cols[i.position]._back)
+                        tempAdjust = 0
+                        if toTerminal:
+                            continue
+
+                        temp = self.cols[i.position]._back[i]
+                        if len(temp) == 1: #this must be a scan
+                            stack.append((i.rule.rhs[i.dot_position-1],depthCount+1))
+                            stack.append((temp[0],depthCount+1))
+                        elif len(temp) == 2: #this is the attach case
+                           # print("did it with depthCount",depthCount+1)
+                            stack.append((temp[1],depthCount+1))
+                            stack.append((temp[0],depthCount+1))
+                            
+                    result += (")"*(depthCount+1+tempAdjust))
+                    print(result)
                     print(self.cols[-1]._weight[item])
-                    return True
-        return False   # we didn't find any appropriate item
+                    return
+        print("NONE")  # we didn't find any appropriate item
 
     def _run_earley(self) -> None:
         """Fill in the Earley chart."""
@@ -122,7 +176,7 @@ class EarleyChart:
         """Start looking for this nonterminal at the given position."""
         #print(position)
         for rule in self.grammar.expansions(nonterminal):
-            new_item = Item(rule, dot_position=0, start_position=position)
+            new_item = Item(rule, dot_position=0, start_position=position, position = position)
             self.cols[position].push(new_item,(),(),new_item.rule.weight) #!modified here(changed push so that it includes the backward tuple and the weight)
             log.debug(f"\tPredicted: {new_item} in column {position}")
             self.profile["PREDICT"] += 1
@@ -132,7 +186,7 @@ class EarleyChart:
         """Attach the next word to this item that ends at position, 
         if it matches what this item is looking for next."""
         if position < len(self.tokens) and self.tokens[position] == item.next_symbol():
-            new_item = item.with_dot_advanced()
+            new_item = item.with_dot_advanced(1)
             self.cols[position + 1].push(new_item,(item,),(self.cols[position]._weight[item],),0) #!modified here(0 here stand for the weight of new item other than the sum of its children)
             log.debug(f"\tScanned to get: {new_item} in column {position+1}")
             self.profile["SCAN"] += 1
@@ -145,7 +199,7 @@ class EarleyChart:
         mid = item.start_position   # start position of this item = end position of item to its left
         for customer in self.cols[mid].all():  # TODO: could you eliminate this inefficient linear search?
             if customer.next_symbol() == item.rule.lhs:
-                new_item = customer.with_dot_advanced()
+                new_item = customer.with_dot_advanced(item.position-customer.position)
 
                 curWeight = self.cols[mid]._weight[customer]+self.cols[position]._weight[item]
                 #print(customer.__repr__,'------',item.__repr__)
@@ -324,6 +378,7 @@ class Item:
     rule: Rule
     dot_position: int
     start_position: int
+    position: int
     # We don't store the end_position, which corresponds to the column
     # that the item is in, although you could store it redundantly for 
     # debugging purposes if you wanted.
@@ -336,10 +391,10 @@ class Item:
         else:
             return self.rule.rhs[self.dot_position]
 
-    def with_dot_advanced(self) -> Item:
+    def with_dot_advanced(self,advancement) -> Item:
         if self.next_symbol() is None:
             raise IndexError("Can't advance the dot past the end of the rule")
-        return Item(rule=self.rule, dot_position=self.dot_position + 1, start_position=self.start_position)
+        return Item(rule=self.rule, dot_position=self.dot_position + 1, start_position=self.start_position,position = self.position+advancement)
 
     def __repr__(self) -> str:
         """Human-readable representation string used when printing this item."""
@@ -366,10 +421,8 @@ def main():
                 log.debug("="*70)
                 log.debug(f"Parsing sentence: {sentence}")
                 chart = EarleyChart(sentence.split(), grammar, progress=args.progress)
-                # print the result
-                print(
-                    f"'{sentence}' is {'accepted' if chart.accepted() else 'rejected'} by {args.grammar}"
-                )
+                #! print the result --> acceptedBP includes printing method within
+                chart.acceptedBP()
                 log.debug(f"Profile of work done: {chart.profile}")
 
 
