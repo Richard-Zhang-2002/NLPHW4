@@ -75,6 +75,8 @@ class EarleyChart:
         """Was the sentence accepted?
         That is, does the finished chart contain an item corresponding to a parse of the sentence?
         This method answers the recognition question, but not the parsing question."""
+        minWeight = -1
+        curResult = ""
         for item in self.cols[-1].all():    # the last column
             if (item.rule.lhs == self.grammar.start_symbol   # a ROOT item in this column
                 and item.next_symbol() is None               # that is complete 
@@ -132,10 +134,16 @@ class EarleyChart:
                             stack.append((temp[0],depthCount+1))
                             
                     result += (")"*(depthCount+1+tempAdjust))
-                    print(result)
-                    print(self.cols[-1]._weight[item])
-                    return
-        print("NONE")  # we didn't find any appropriate item
+
+                    if minWeight == -1 or minWeight > self.cols[-1]._weight[item]:
+                        curResult = result
+                        minWeight = self.cols[-1]._weight[item]
+        
+        if minWeight == -1:
+            print("NONE")  # we didn't find any appropriate item
+        else:
+            print(curResult)
+            print(minWeight)
 
     def _run_earley(self) -> None:
         """Fill in the Earley chart."""
@@ -174,11 +182,12 @@ class EarleyChart:
 
     def _predict(self, nonterminal: str, position: int) -> None:
         """Start looking for this nonterminal at the given position."""
-        #print(position)
+        #print("predicted"position)
         for rule in self.grammar.expansions(nonterminal):
             new_item = Item(rule, dot_position=0, start_position=position, position = position)
             self.cols[position].push(new_item,(),(),new_item.rule.weight) #!modified here(changed push so that it includes the backward tuple and the weight)
             log.debug(f"\tPredicted: {new_item} in column {position}")
+            #print(f"\tPredicted: {new_item} in column {position}")
             self.profile["PREDICT"] += 1
 
     def _scan(self, item: Item, position: int) -> None:
@@ -189,6 +198,7 @@ class EarleyChart:
             new_item = item.with_dot_advanced(1)
             self.cols[position + 1].push(new_item,(item,),(self.cols[position]._weight[item],),0) #!modified here(0 here stand for the weight of new item other than the sum of its children)
             log.debug(f"\tScanned to get: {new_item} in column {position+1}")
+            #print(f"\tScanned to get: {new_item} in column {position+1}")
             self.profile["SCAN"] += 1
 
     def _attach(self, item: Item, position: int) -> None:
@@ -209,6 +219,7 @@ class EarleyChart:
 
                 self.cols[position].push(new_item,(customer,item),(self.cols[mid]._weight[customer],self.cols[position]._weight[item]),0) #!also modified here
                 log.debug(f"\tAttached to get: {new_item} in column {position}")
+                #print(f"\tAttached to get: {new_item} in column {position}")
                 self.profile["ATTACH"] += 1
 
 
@@ -258,25 +269,31 @@ class Agenda:
         return len(self._items) - self._next
 
     def push(self, item: Item, back: Tuple(),backWeights: Tuple(),extraWeight: float) -> None:
+        #print("")
+        curWeight = extraWeight
+        for w in backWeights:
+            curWeight += w
+
+        #print("newWeight:",curWeight)
         """Add (enqueue) the item, unless it was previously added."""
         if item not in self._index:    # O(1) lookup in hash table
             #print("item:",item)
             self._items.append(item)
             self._index[item] = len(self._items) - 1
-            curWeight = extraWeight
-            for w in backWeights:
-                curWeight += w
             self._weight[item] = curWeight
             self._back[item] = back
         else: #! if the item is in the hashtable, we see if the weight can be improved
-            curWeight = extraWeight
-            for w in backWeights:
-                curWeight += w
+            if len(backWeights) == 0:
+                return #if we are predicting something that we already have, just return it
+            if len(backWeights) == 1:
+                #print("WHAT!") #this shouldn't happen
+                return
 
+            #print(curWeight)
+            #print(self._weight[item])
             if curWeight  < self._weight[item]:
                 self._weight[item] = curWeight
                 self._back[item] = back
-        #print("inner push weight is",self._weight[item])
             
     def pop(self) -> Item:
         """Returns one of the items that was waiting to be popped (dequeued).
