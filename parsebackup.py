@@ -9,7 +9,6 @@ that reconstructs the highest-probability parse of each given sentence.)
 # This code is hereby released to the public domain.
 
 from __future__ import annotations
-from collections import defaultdict
 import argparse
 import logging
 import math
@@ -213,15 +212,23 @@ class EarleyChart:
         called "complete," but actually it attaches an item that was already complete.)
         """
         mid = item.start_position   # start position of this item = end position of item to its left
+        for customer in self.cols[mid].all():  # TODO: could you eliminate this inefficient linear search?
+            if customer is None:
+                continue
+            if customer.next_symbol() == item.rule.lhs:
+                new_item = customer.with_dot_advanced(item.position-customer.position)
 
-
-
-        for customer in self.cols[mid].expectations.get(item.rule.lhs, []):
-            new_item = customer.with_dot_advanced(item.position-customer.position)
-            self.cols[position].push(new_item, (customer, item), (self.cols[mid]._weight[customer], self.cols[position]._weight[item]), 0)
-            log.debug(f"\tAttached to get: {new_item} in column {position}")
-            self.profile["ATTACH"] += 1
-
+                #curWeight = self.cols[mid]._weight[customer]+self.cols[position]._weight[item]
+                
+                #print(customer.__repr__,'------',item.__repr__)
+                #print("column",mid,"and",position)
+                #print("attaching",self.cols[mid]._weight[customer],"and",self.cols[position]._weight[item])
+                #print("attach weight is",curWeight)
+                #print(f"\tAttached to get: {new_item} in column {position}")
+                self.cols[position].push(new_item,(customer,item),(self.cols[mid]._weight[customer],self.cols[position]._weight[item]),0) #!also modified here
+                log.debug(f"\tAttached to get: {new_item} in column {position}")
+                
+                self.profile["ATTACH"] += 1
 
 
 class Agenda:
@@ -256,8 +263,6 @@ class Agenda:
         self._back = {} #! Dictionary used to store the back pointer(aka two other Items)
         self._weight: Dict[Item, float] = {} #! save the weight of each item
         self._next = 0                     # index of first item that has not yet been popped
-        self.expectations = defaultdict(list)
-
 
         # Note: There are other possible designs.  For example, self._index doesn't really
         # have to store the index; it could be changed from a dictionary to a set.  
@@ -286,8 +291,6 @@ class Agenda:
             self._weight[item] = curWeight
             self._back[item] = back
             #print("with weight",curWeight)
-            next_symbol = item.next_symbol()
-            self.expectations[next_symbol].append(item) #categorize item by the next symbol
         else: #! if the item is in the hashtable, we see if the weight can be improved
             #if len(backWeights) == 0:
             #    return #if we are predicting something that we already have, just return it
@@ -301,14 +304,9 @@ class Agenda:
                 #print("update with from",self._weight[item],"to",curWeight)
                 self._weight[item] = curWeight
                 self._back[item] = back
-                
-                next_symbol = item.next_symbol()
-
-                self.expectations[next_symbol].remove(self._items[self._index[item]]) #kill it in expectations
-                self._items[self._index[item]] = None #kill the useless thing itself
+                self._items[self._index[item]] = None #kill the useless thing
                 self._items.append(item)
                 self._index[item] = len(self._items) - 1
-                self.expectations[next_symbol].append(item)
             
     def pop(self) -> Item:
         """Returns one of the items that was waiting to be popped (dequeued).
