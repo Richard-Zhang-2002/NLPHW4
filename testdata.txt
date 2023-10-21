@@ -1,0 +1,2 @@
+(ROOT (S (NP (Det the)(N caviar))(VP (V ate)(NP (NP (NP (Det a)(N spoon))(PP (P with)(NP (Det the)(N caviar))))(PP (P with)(NP (Det a)(N caviar)))))))
+22.44614174215393

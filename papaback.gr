@@ -1,7 +1,7 @@
 1	ROOT	S
 1	S	NP VP
-0.1	NP	Det N
-0.8	NP	NP PP
+0.8	NP	Det N
+0.1	NP	NP PP
 0.7	VP	V NP
 0.3	VP	VP PP
 1	PP	P NP

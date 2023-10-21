@@ -78,6 +78,8 @@ class EarleyChart:
         minWeight = -1
         curResult = ""
         for item in self.cols[-1].all():    # the last column
+            if item is None:
+                continue
             if (item.rule.lhs == self.grammar.start_symbol   # a ROOT item in this column
                 and item.next_symbol() is None               # that is complete 
                 and item.start_position == 0):               # and started back at position 0
@@ -178,16 +180,18 @@ class EarleyChart:
                 else:
                     # Try to scan the terminal after the dot
                     log.debug(f"{item} => SCAN")
-                    self._scan(item, i)                      
+                    self._scan(item, i)    
+                #print("current column:",column)                  
 
     def _predict(self, nonterminal: str, position: int) -> None:
         """Start looking for this nonterminal at the given position."""
         #print("predicted"position)
         for rule in self.grammar.expansions(nonterminal):
             new_item = Item(rule, dot_position=0, start_position=position, position = position)
+            #print(f"\tPredicted: {new_item} in column {position}")
             self.cols[position].push(new_item,(),(),new_item.rule.weight) #!modified here(changed push so that it includes the backward tuple and the weight)
             log.debug(f"\tPredicted: {new_item} in column {position}")
-            #print(f"\tPredicted: {new_item} in column {position}")
+            
             self.profile["PREDICT"] += 1
 
     def _scan(self, item: Item, position: int) -> None:
@@ -196,9 +200,10 @@ class EarleyChart:
         if it matches what this item is looking for next."""
         if position < len(self.tokens) and self.tokens[position] == item.next_symbol():
             new_item = item.with_dot_advanced(1)
+            #print(f"\tScanned to get: {new_item} in column {position+1}")
             self.cols[position + 1].push(new_item,(item,),(self.cols[position]._weight[item],),0) #!modified here(0 here stand for the weight of new item other than the sum of its children)
             log.debug(f"\tScanned to get: {new_item} in column {position+1}")
-            #print(f"\tScanned to get: {new_item} in column {position+1}")
+            
             self.profile["SCAN"] += 1
 
     def _attach(self, item: Item, position: int) -> None:
@@ -208,18 +213,21 @@ class EarleyChart:
         """
         mid = item.start_position   # start position of this item = end position of item to its left
         for customer in self.cols[mid].all():  # TODO: could you eliminate this inefficient linear search?
+            if customer is None:
+                continue
             if customer.next_symbol() == item.rule.lhs:
                 new_item = customer.with_dot_advanced(item.position-customer.position)
 
-                curWeight = self.cols[mid]._weight[customer]+self.cols[position]._weight[item]
+                #curWeight = self.cols[mid]._weight[customer]+self.cols[position]._weight[item]
+                
                 #print(customer.__repr__,'------',item.__repr__)
                 #print("column",mid,"and",position)
                 #print("attaching",self.cols[mid]._weight[customer],"and",self.cols[position]._weight[item])
                 #print("attach weight is",curWeight)
-
+                #print(f"\tAttached to get: {new_item} in column {position}")
                 self.cols[position].push(new_item,(customer,item),(self.cols[mid]._weight[customer],self.cols[position]._weight[item]),0) #!also modified here
                 log.debug(f"\tAttached to get: {new_item} in column {position}")
-                #print(f"\tAttached to get: {new_item} in column {position}")
+                
                 self.profile["ATTACH"] += 1
 
 
@@ -282,6 +290,7 @@ class Agenda:
             self._index[item] = len(self._items) - 1
             self._weight[item] = curWeight
             self._back[item] = back
+            #print("with weight",curWeight)
         else: #! if the item is in the hashtable, we see if the weight can be improved
             if len(backWeights) == 0:
                 return #if we are predicting something that we already have, just return it
@@ -292,16 +301,22 @@ class Agenda:
             #print(curWeight)
             #print(self._weight[item])
             if curWeight  < self._weight[item]:
+                #print("update with from",self._weight[item],"to",curWeight)
                 self._weight[item] = curWeight
                 self._back[item] = back
+                self._items[self._index[item]] = None #kill the useless thing
+                self._items.append(item)
+                self._index[item] = len(self._items) - 1
             
     def pop(self) -> Item:
         """Returns one of the items that was waiting to be popped (dequeued).
         Raises IndexError if there are no items waiting."""
         if len(self)==0:
             raise IndexError
-        item = self._items[self._next]
-        self._next += 1
+        item = None
+        while item == None:
+            item = self._items[self._next]
+            self._next += 1
         return item
 
     def all(self) -> Iterable[Item]:

@@ -1,0 +1,25 @@
+
+
+
+1	ROOT	NP
+
+0.5	NP	Det Noun
+0.5	NP	NP PP
+1	PP	Prep NP
+0.33	Noun	Adj Noun
+
+0.5	Verb	understood
+0.5	Verb	pickled
+
+0.5	Det	the
+0.5	Det	a
+
+0.33	Noun	president
+0.33	Noun	sandwich
+
+
+0.5	Adj	fine
+0.5	Adj	delicious
+
+0.5	Prep	with
+0.5	Prep	on
