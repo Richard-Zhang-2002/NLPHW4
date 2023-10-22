@@ -64,42 +64,13 @@ class EarleyChart:
     def __init__(self, tokens: List[str], grammar: Grammar, progress: bool = False) -> None:
         """Create the chart based on parsing `tokens` with `grammar`.  
         `progress` says whether to display progress bars as we parse."""
-        
         self.tokens = tokens
         self.grammar = grammar
-
-        self.R = defaultdict(list)
-        self.P = defaultdict(set)
-        self.line = 1
-        for non_terminal, rules in grammar._expansions.items():
-            for rule in rules:
-        # Now, you can
-
-                lhs, rhs = rule.lhs, rule.rhs
-                if rhs:
-                    self.R[rhs[0]].append(rule)
-                    self.P[rhs[0]].add(lhs)
-        
         self.progress = progress
         self.profile: CounterType[str] = Counter()
 
         self.cols: List[Agenda]
         self._run_earley()    # run Earley's algorithm to construct self.cols
-
-    def _compute_Sj(self, j: int) -> Set[str]: #! this is the part I edited
-        """Compute the S_j table for position j."""
-        Sj = set()
-        if j >= len(self.tokens):
-            return Sj #meaning that we are out of bound
-        wj = self.tokens[j]
-        agenda = [wj]
-        while agenda: #essentially adding all ancestors of this word to Sj
-            B = agenda.pop()
-            for A in self.P.get(B, []):
-                if A not in Sj:
-                    Sj.add(A)
-                    agenda.append(A)
-        return Sj
 
     def acceptedBP(self) -> bool:
         """Was the sentence accepted?
@@ -190,59 +161,33 @@ class EarleyChart:
         # 
         # The iterator over numbered columns is `enumerate(self.cols)`.  
         # Wrapping this iterator in the `tqdm` call provides a progress bar.
-
-        self.line = 1
-
-    
-        while self.line > 0:
-            self.cols = [Agenda() for _ in range(len(self.tokens) + 1)]
-            self._predict(self.grammar.start_symbol, 0)
-            
-            for i, column in tqdm.tqdm(enumerate(self.cols),
-                                    total=len(self.cols),
-                                    disable=not self.progress):
-                log.debug("")
-                log.debug(f"Processing items in column {i}")
-                if self.line == -1:
-                    break
-                Sj = self._compute_Sj(i)
-                #print(i)
-                #print(column)
-                while column:    # while agenda isn't empty
-                    item = column.pop()   # dequeue the next unprocessed item
-                    if self.cols[i]._weight[item] > self.line:
-                        continue
-                    if item.rule.lhs == self.grammar.start_symbol and item.next_symbol() is None:
-                        self.line = -1
-                        break
-                        
-                    next = item.next_symbol();
-                    if next is None:
-                        # Attach this complete constituent to its customers
-                        log.debug(f"{item} => ATTACH")
-                        self._attach(item, i)   
-                    elif self.grammar.is_nonterminal(next):
-                        # Predict the nonterminal after the dot
-                        log.debug(f"{item} => PREDICT")
-                        if next not in Sj: #if our nonterminal isn't one of these ancestors, we can safely ignore it
-                            continue
-                        self._predict(next, i)
-                    else:
-                        # Try to scan the terminal after the dot
-                        log.debug(f"{item} => SCAN")
-                        self._scan(item, i)    
-                    #print("current column:",column) 
-            self.line *= 2
-            #print(self.line)                 
+        for i, column in tqdm.tqdm(enumerate(self.cols),
+                                   total=len(self.cols),
+                                   disable=not self.progress):
+            log.debug("")
+            log.debug(f"Processing items in column {i}")
+            while column:    # while agenda isn't empty
+                item = column.pop()   # dequeue the next unprocessed item
+                next = item.next_symbol();
+                if next is None:
+                    # Attach this complete constituent to its customers
+                    log.debug(f"{item} => ATTACH")
+                    self._attach(item, i)   
+                elif self.grammar.is_nonterminal(next):
+                    # Predict the nonterminal after the dot
+                    log.debug(f"{item} => PREDICT")
+                    self._predict(next, i)
+                else:
+                    # Try to scan the terminal after the dot
+                    log.debug(f"{item} => SCAN")
+                    self._scan(item, i)    
+                #print("current column:",column)                  
 
     def _predict(self, nonterminal: str, position: int) -> None:
         """Start looking for this nonterminal at the given position."""
         #print("predicted"position)
-        
         for rule in self.grammar.expansions(nonterminal):
             new_item = Item(rule, dot_position=0, start_position=position, position = position)
-            if new_item.rule.weight > self.line:
-                continue
 
             # modified part
             if new_item not in self.cols[position]._index:
@@ -264,8 +209,6 @@ class EarleyChart:
             # print(f"{position}")
             # print(item.next_symbol())
             new_item = item.with_dot_advanced(1)
-            if self.cols[position]._weight[item] > self.line:
-                return
             #print(f"\tScanned to get: {new_item} in column {position+1}")
             self.cols[position + 1].push(new_item,(item,),(self.cols[position]._weight[item],),0) #!modified here(0 here stand for the weight of new item other than the sum of its children)
             log.debug(f"\tScanned to get: {new_item} in column {position+1}")
@@ -284,8 +227,6 @@ class EarleyChart:
 
         for customer in self.cols[mid].expectations.get(item.rule.lhs, []):
             new_item = customer.with_dot_advanced(item.position-customer.position)
-            if self.cols[mid]._weight[customer] + self.cols[position]._weight[item] > self.line:
-                continue
             self.cols[position].push(new_item, (customer, item), (self.cols[mid]._weight[customer], self.cols[position]._weight[item]), 0)
             log.debug(f"\tAttached to get: {new_item} in column {position}")
             self.profile["ATTACH"] += 1
@@ -388,7 +329,6 @@ class Agenda:
             item = self._items[self._next]
             self._next += 1
         return item
-
 
     def all(self) -> Iterable[Item]:
         """Collection of all items that have ever been pushed, even if 
@@ -527,7 +467,6 @@ def main():
                 #! print the result --> acceptedBP includes printing method within
                 chart.acceptedBP()
                 log.debug(f"Profile of work done: {chart.profile}")
-                
 
 
 if __name__ == "__main__":
