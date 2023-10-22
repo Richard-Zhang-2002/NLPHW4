@@ -64,13 +64,41 @@ class EarleyChart:
     def __init__(self, tokens: List[str], grammar: Grammar, progress: bool = False) -> None:
         """Create the chart based on parsing `tokens` with `grammar`.  
         `progress` says whether to display progress bars as we parse."""
+        
         self.tokens = tokens
         self.grammar = grammar
+
+        self.R = defaultdict(list)
+        self.P = defaultdict(set)
+        for non_terminal, rules in grammar._expansions.items():
+            for rule in rules:
+        # Now, you can
+
+                lhs, rhs = rule.lhs, rule.rhs
+                if rhs:
+                    self.R[rhs[0]].append(rule)
+                    self.P[rhs[0]].add(lhs)
+        
         self.progress = progress
         self.profile: CounterType[str] = Counter()
 
         self.cols: List[Agenda]
         self._run_earley()    # run Earley's algorithm to construct self.cols
+
+    def _compute_Sj(self, j: int) -> Set[str]: #! this is the part I edited
+        """Compute the S_j table for position j."""
+        Sj = set()
+        if j >= len(self.tokens):
+            return Sj #meaning that we are out of bound
+        wj = self.tokens[j]
+        agenda = [wj]
+        while agenda: #essentially adding all ancestors of this word to Sj
+            B = agenda.pop()
+            for A in self.P.get(B, []):
+                if A not in Sj:
+                    Sj.add(A)
+                    agenda.append(A)
+        return Sj
 
     def acceptedBP(self) -> bool:
         """Was the sentence accepted?
@@ -152,7 +180,6 @@ class EarleyChart:
         """Fill in the Earley chart."""
         # Initially empty column for each position in sentence
         self.cols = [Agenda() for _ in range(len(self.tokens) + 1)]
-
         # Start looking for ROOT at position 0
         self._predict(self.grammar.start_symbol, 0)
 
@@ -167,6 +194,7 @@ class EarleyChart:
                                    disable=not self.progress):
             log.debug("")
             log.debug(f"Processing items in column {i}")
+            Sj = self._compute_Sj(i)
             while column:    # while agenda isn't empty
                 item = column.pop()   # dequeue the next unprocessed item
                 next = item.next_symbol();
@@ -177,6 +205,8 @@ class EarleyChart:
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
                     log.debug(f"{item} => PREDICT")
+                    if next not in Sj: #if our nonterminal isn't one of these ancestors, we can safely ignore it
+                        continue
                     self._predict(next, i)
                 else:
                     # Try to scan the terminal after the dot
@@ -187,10 +217,18 @@ class EarleyChart:
     def _predict(self, nonterminal: str, position: int) -> None:
         """Start looking for this nonterminal at the given position."""
         #print("predicted"position)
+        
         for rule in self.grammar.expansions(nonterminal):
             new_item = Item(rule, dot_position=0, start_position=position, position = position)
-            #print(f"\tPredicted: {new_item} in column {position}")
-            self.cols[position].push(new_item,(),(),new_item.rule.weight) #!modified here(changed push so that it includes the backward tuple and the weight)
+
+            # modified part
+            if new_item not in self.cols[position]._index:
+                if self.grammar.is_nonterminal(new_item.next_symbol()):
+                    self.cols[position].push(new_item,(),(),new_item.rule.weight) #!modified here(changed push so that it includes the backward tuple and the weight)
+                elif new_item.next_symbol() in self.tokens and position >= self.tokens.index(new_item.next_symbol()):
+                    self.cols[position].push(new_item,(),(),new_item.rule.weight)
+            # ended modification
+
             log.debug(f"\tPredicted: {new_item} in column {position}")
             
             self.profile["PREDICT"] += 1
@@ -200,12 +238,15 @@ class EarleyChart:
         """Attach the next word to this item that ends at position, 
         if it matches what this item is looking for next."""
         if position < len(self.tokens) and self.tokens[position] == item.next_symbol():
+            # print(f"{position}")
+            # print(item.next_symbol())
             new_item = item.with_dot_advanced(1)
             #print(f"\tScanned to get: {new_item} in column {position+1}")
             self.cols[position + 1].push(new_item,(item,),(self.cols[position]._weight[item],),0) #!modified here(0 here stand for the weight of new item other than the sum of its children)
             log.debug(f"\tScanned to get: {new_item} in column {position+1}")
             
             self.profile["SCAN"] += 1
+
 
     def _attach(self, item: Item, position: int) -> None:
         """Attach this complete item to its customers in previous columns, advancing the
