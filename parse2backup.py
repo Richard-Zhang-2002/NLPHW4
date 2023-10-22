@@ -64,41 +64,13 @@ class EarleyChart:
     def __init__(self, tokens: List[str], grammar: Grammar, progress: bool = False) -> None:
         """Create the chart based on parsing `tokens` with `grammar`.  
         `progress` says whether to display progress bars as we parse."""
-        
         self.tokens = tokens
         self.grammar = grammar
-
-        self.R = defaultdict(list)
-        self.P = defaultdict(set)
-        for non_terminal, rules in grammar._expansions.items():
-            for rule in rules:
-        # Now, you can
-
-                lhs, rhs = rule.lhs, rule.rhs
-                if rhs:
-                    self.R[rhs[0]].append(rule)
-                    self.P[rhs[0]].add(lhs)
-        
         self.progress = progress
         self.profile: CounterType[str] = Counter()
 
         self.cols: List[Agenda]
         self._run_earley()    # run Earley's algorithm to construct self.cols
-
-    def _compute_Sj(self, j: int) -> Set[str]: #! this is the part I edited
-        """Compute the S_j table for position j."""
-        Sj = set()
-        if j >= len(self.tokens):
-            return Sj #meaning that we are out of bound
-        wj = self.tokens[j]
-        agenda = [wj]
-        while agenda: #essentially adding all ancestors of this word to Sj
-            B = agenda.pop()
-            for A in self.P.get(B, []):
-                if A not in Sj:
-                    Sj.add(A)
-                    agenda.append(A)
-        return Sj
 
     def acceptedBP(self) -> bool:
         """Was the sentence accepted?
@@ -194,7 +166,6 @@ class EarleyChart:
                                    disable=not self.progress):
             log.debug("")
             log.debug(f"Processing items in column {i}")
-            Sj = self._compute_Sj(i)
             while column:    # while agenda isn't empty
                 item = column.pop()   # dequeue the next unprocessed item
                 next = item.next_symbol();
@@ -205,8 +176,6 @@ class EarleyChart:
                 elif self.grammar.is_nonterminal(next):
                     # Predict the nonterminal after the dot
                     log.debug(f"{item} => PREDICT")
-                    if next not in Sj: #if our nonterminal isn't one of these ancestors, we can safely ignore it
-                        continue
                     self._predict(next, i)
                 else:
                     # Try to scan the terminal after the dot
@@ -217,7 +186,6 @@ class EarleyChart:
     def _predict(self, nonterminal: str, position: int) -> None:
         """Start looking for this nonterminal at the given position."""
         #print("predicted"position)
-        
         for rule in self.grammar.expansions(nonterminal):
             new_item = Item(rule, dot_position=0, start_position=position, position = position)
 
