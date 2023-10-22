@@ -152,7 +152,6 @@ class EarleyChart:
         """Fill in the Earley chart."""
         # Initially empty column for each position in sentence
         self.cols = [Agenda() for _ in range(len(self.tokens) + 1)]
-
         # Start looking for ROOT at position 0
         self._predict(self.grammar.start_symbol, 0)
 
@@ -189,8 +188,15 @@ class EarleyChart:
         #print("predicted"position)
         for rule in self.grammar.expansions(nonterminal):
             new_item = Item(rule, dot_position=0, start_position=position, position = position)
-            #print(f"\tPredicted: {new_item} in column {position}")
-            self.cols[position].push(new_item,(),(),new_item.rule.weight) #!modified here(changed push so that it includes the backward tuple and the weight)
+
+            # modified part
+            if new_item not in self.cols[position]._index:
+                if self.grammar.is_nonterminal(new_item.next_symbol()):
+                    self.cols[position].push(new_item,(),(),new_item.rule.weight) #!modified here(changed push so that it includes the backward tuple and the weight)
+                elif new_item.next_symbol() in self.tokens and position >= self.tokens.index(new_item.next_symbol()):
+                    self.cols[position].push(new_item,(),(),new_item.rule.weight)
+            # ended modification
+
             log.debug(f"\tPredicted: {new_item} in column {position}")
             
             self.profile["PREDICT"] += 1
@@ -200,12 +206,15 @@ class EarleyChart:
         """Attach the next word to this item that ends at position, 
         if it matches what this item is looking for next."""
         if position < len(self.tokens) and self.tokens[position] == item.next_symbol():
+            # print(f"{position}")
+            # print(item.next_symbol())
             new_item = item.with_dot_advanced(1)
             #print(f"\tScanned to get: {new_item} in column {position+1}")
             self.cols[position + 1].push(new_item,(item,),(self.cols[position]._weight[item],),0) #!modified here(0 here stand for the weight of new item other than the sum of its children)
             log.debug(f"\tScanned to get: {new_item} in column {position+1}")
             
             self.profile["SCAN"] += 1
+
 
     def _attach(self, item: Item, position: int) -> None:
         """Attach this complete item to its customers in previous columns, advancing the
